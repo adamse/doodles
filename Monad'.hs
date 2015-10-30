@@ -28,7 +28,16 @@ fail str _ = error str
 monad'IO :: Monad IO
 monad'IO = Monad {_return = P.return, _bind = (P.>>=)}
 
+monad'List :: Monad []
+monad'List = Monad {_return = \a -> [a], _bind = flip concatMap}
+
 putStrLn' :: String -> M IO ()
 putStrLn' str _ = putStrLn str
 
-main = (do putStrLn' "hej"; return ()) monad'IO
+thing :: M [] Integer
+thing = do s <- const [1,2,3,4]
+           return (s + 12)
+
+main = (do putStrLn' "hej"
+           return ()
+       ) monad'IO
