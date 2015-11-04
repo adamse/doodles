@@ -11,9 +11,11 @@ data T : Set where
   -- s₁ + s₂
   B : (s₁ s₂ : T) → T
 
-data ℕ+ : Set where
-  one : ℕ+
-  suc : ℕ+ → ℕ+
+-- data ℕ+ : Set where
+--   one : ℕ+
+--   suc : ℕ+ → ℕ+
+
+ℕ+ = ℕ -- zero is one
 
 data Bit : Set where
   one : Bit
@@ -21,13 +23,13 @@ data Bit : Set where
 
 Bits = List⁺ Bit
 
-fold : {a : Set} → a → (a → a) → ℕ+ → a
-fold o s one = o
-fold o s (suc n) = s (fold o s n)
+-- fold : {a : Set} → a → (a → a) → ℕ+ → a
+-- fold o s one = o
+-- fold o s (suc n) = s (fold o s n)
 
-toℕ+ : (n : ℕ) → n > 0 → ℕ+ -- some kind of proof automation would be cool
-toℕ+ zero ()
-toℕ+ (suc n) (s≤s p) = Nat.fold one suc n
+-- toℕ+ : (n : ℕ) → n > 0 → ℕ+ --
+-- toℕ+ zero ()
+-- toℕ+ (suc n) (s≤s p) = Nat.fold one suc n
 
 inc : Bits → Bits
 inc (one ∷ tail) = two ∷ tail
@@ -40,20 +42,23 @@ inc (two ∷ tail) = one ∷ inc' tail
 
 -- to bits you say
 toBits : ℕ+ → Bits
-toBits n = reverse (fold [ one ] inc n)
+toBits n = reverse (Nat.fold [ one ] inc n)
 
 combineT : T → Maybe T → T
 combineT l (just r) = B l r
 combineT l nothing = l
 
-mkT : ℕ → Bit → T
-mkT zero one = L
-mkT zero two = B L L
-mkT (suc n) l = B (mkT n l) (mkT n l)
-
-toT' : List Bit → Maybe T
-toT' [] = nothing
-toT' (bit ∷ bits) = just (combineT (mkT (List.length bits) bit) (toT' bits))
+completeT : ℕ → Bit → T
+completeT zero one = L
+completeT zero two = B L L
+completeT (suc n) l = B (completeT n l) (completeT n l)
 
 toT : Bits → T
-toT (bit ∷ bits) = combineT (mkT (List.length bits) bit) (toT' bits)
+toT (bit ∷ bits) = combineT (completeT (List.length bits) bit) (toT' bits)
+  where
+  toT' : List Bit → Maybe T
+  toT' [] = nothing
+  toT' (bit ∷ bits) = just (combineT (completeT (List.length bits) bit) (toT' bits))
+
+mkT : ℕ+ → T
+mkT n = toT (toBits n)
