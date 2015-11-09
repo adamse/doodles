@@ -11,6 +11,10 @@ data T : Set where
   -- s₁ + s₂
   B : (s₁ s₂ : T) → T
 
+toNat : T → ℕ
+toNat L = 1
+toNat (B b b₁) = (toNat b) Nat.+ (toNat b₁)
+
 -- zeroless bits
 data Bit : Set where
   one : Bit
@@ -64,3 +68,10 @@ module test where
 
   t3 : mkT 3 ≡ just (B (B L L) L)
   t3 = refl
+
+  -- open import Data.Sum
+
+  -- t4 : ∀ n → n ≡ 0 ⊎ mapMaybe toNat (mkT n) ≡ just n
+  -- t4 zero = inj₁ refl
+  -- t4 (suc n) with mkT (suc n)
+  -- ... | h = inj₂ {!!}
