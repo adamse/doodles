@@ -11,25 +11,13 @@ data T : Set where
   -- s₁ + s₂
   B : (s₁ s₂ : T) → T
 
--- data ℕ+ : Set where
---   one : ℕ+
---   suc : ℕ+ → ℕ+
-
-ℕ+ = ℕ -- zero is one
-
+-- zeroless bits
 data Bit : Set where
   one : Bit
   two : Bit
 
+-- zeroless binary number
 Bits = List⁺ Bit
-
--- fold : {a : Set} → a → (a → a) → ℕ+ → a
--- fold o s one = o
--- fold o s (suc n) = s (fold o s n)
-
--- toℕ+ : (n : ℕ) → n > 0 → ℕ+ --
--- toℕ+ zero ()
--- toℕ+ (suc n) (s≤s p) = Nat.fold one suc n
 
 inc : Bits → Bits
 inc (one ∷ tail) = two ∷ tail
@@ -40,9 +28,9 @@ inc (two ∷ tail) = one ∷ inc' tail
   inc' (one ∷ bits) = two ∷ bits
   inc' (two ∷ bits) = one ∷ inc' bits
 
--- to bits you say
-toBits : ℕ+ → Bits
-toBits n = reverse (Nat.fold [ one ] inc n)
+toBits : ℕ → Maybe Bits
+toBits zero = nothing
+toBits (suc n) = just (Nat.fold [ one ] inc n)
 
 combineT : T → Maybe T → T
 combineT l (just r) = B l r
@@ -54,11 +42,25 @@ completeT zero two = B L L
 completeT (suc n) l = B (completeT n l) (completeT n l)
 
 toT : Bits → T
-toT (bit ∷ bits) = combineT (completeT (List.length bits) bit) (toT' bits)
+toT (bits) = go (reverse bits)
   where
-  toT' : List Bit → Maybe T
-  toT' [] = nothing
-  toT' (bit ∷ bits) = just (combineT (completeT (List.length bits) bit) (toT' bits))
+  go' : List Bit → Maybe T
+  go : Bits → T
+  go (bit ∷ bits) = combineT (completeT (List.length bits) bit) (go' bits)
+  go' [] = nothing
+  go' (bit ∷ bits) = just (combineT (completeT (List.length bits) bit) (go' bits))
 
-mkT : ℕ+ → T
-mkT n = toT (toBits n)
+mkT : ℕ → Maybe T
+mkT n = mapMaybe toT (toBits n)
+
+module test where
+  open import Relation.Binary.PropositionalEquality
+
+  t : mkT 1 ≡ just L
+  t = refl
+
+  t2 : mkT 2 ≡ just (B L L)
+  t2 = refl
+
+  t3 : mkT 3 ≡ just (B (B L L) L)
+  t3 = refl
