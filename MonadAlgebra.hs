@@ -1,7 +1,10 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE StandaloneDeriving #-}
 -- |
 module MonadAlgebra where
 
@@ -9,11 +12,9 @@ import Data.Set
 
 -- I for Initial monad algebra
 data I a = Ret a | Join (I (I a))
+  deriving Show
 
--- GADT to see the types easier
-data Free f a where
-  Pure :: a -> Free f a
-  Free :: f (Free f a) -> Free f a
+data Free f a = Pure a | Free (f (Free f a))
 
 -- Fancy Fix -- what does it really mean?
 data Fix a b = In (a (Fix a) b)
@@ -22,6 +23,8 @@ unFix :: Fix a b -> a (Fix a) b
 unFix (In a) = a
 
 type I' a = Fix Free a
+
+-- Question: Is I' also an initial monad algrebra?
 
 m :: I a -> I' a
 m (Ret a) = In (Pure a)
