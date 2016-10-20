@@ -3,18 +3,18 @@
 module Glob where
 
 
-match pat str = or (match' pat str)
-
-match'
+match
   :: String -- ^ pattern
   -> String -- ^ string
-  -> [Bool]
-match' [] [] = [True]
-match' ('*':pat) (_:cs) = match' pat cs ++ match' ('*':pat) cs
-match' (p:pat) (c:cs)
-  | p == c = match' pat cs
-  | otherwise = [False]
-match' _ _ = [False]
+  -> Bool
+match [] [] = True
+match ('?':pat) (_:cs) = match pat cs
+match ('*':pat) (_:cs) =
+  match pat cs || match ('*' : pat) cs
+match (p:pat) (c:cs)
+  | p == c = match pat cs
+  | otherwise = False
+match _ _ = False
 
 examples = ["/Dir/Page", "/Dir/*", "*/Page"]
 
