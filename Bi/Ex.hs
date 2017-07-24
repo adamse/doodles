@@ -1,11 +1,11 @@
 -- |
-module Bi.Ex where
+module Ex where
 
 import Prelude
 
-import Bi.Syn
-import Bi.Bi
-import Bi.Tc
+import Syn
+import Bi
+import Tc
 
 type Term' = Term Integer Integer
 type Typ' = Typ Integer
@@ -18,6 +18,8 @@ idTyp = fall 1 (TV 1 :-> TV 1)
 
 idTyp' :: Typ'
 idTyp' = One :-> One
+
+id' = In idTerm idTyp
 
 checks@[idCheck, idCheck', unitCheck, idAppCheck] = map runTc'
   [ check idTerm idTyp

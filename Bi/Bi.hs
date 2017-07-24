@@ -10,21 +10,12 @@
 {-# OPTIONS -Wno-unused-matches #-}
 {-# OPTIONS -fdefer-typed-holes #-}
 -- |
-module Bi.Bi where
+module Bi where
 
 import Bound
--- import Control.Applicative
--- import Control.Monad (ap)
--- import Data.Functor.Classes
--- import Data.Foldable
--- import Data.Traversable
--- import Control.Monad.Except
-import Data.List (notElem)
 
-
-import Bi.Syn
--- import Ctx
-import Bi.Tc
+import Syn
+import Tc
 
 type TcC a b = (Show a, Show b, Eq a, Eq b)
 
@@ -91,15 +82,16 @@ synth Unit = do
 synth (Lam s) = do
   a <- newEx
   b <- newEx
-  x <- newV a
+  x <- newV (Ex a)
   traceW ["->I=>1: (x, a, b) =", show (x, a, b)]
   let s' = instantiate1 x s
   traceW ["->I=>2: (s, s') =", show (s, s')]
-  check s' b
+  check s' (Ex b)
   traceW ["->I=>3:", show s', ":", show b]
   dropV x
-  traceTc $ "->I=>4: " ++ show (Lam s) ++ " : " ++ show (a :-> b)
-  return (a :-> b)
+  let t = Ex a :-> Ex b :: Typ a
+  -- traceW ["->I=>4: ", show (Lam s), " : ", show t]
+  return t
 
 -- ->E
 synth (e1 :@ e2) = do
@@ -122,13 +114,13 @@ app
 app t@(All s) e = do
   traceW ["AllApp:", show (t, e)]
   ahat <- newEx
-  let bigA = instantiate1 ahat s
+  let bigA = instantiate1 (Ex ahat) s
   app bigA e
 
 -- ExAp
 app ev@(Ex a) e = do
   traceW ["ExAp:", show (ev, e)]
-  (a1, a2) <- addExArr a
+  (a1, a2) <- solveArr a
   check e a1
   return a2
 
@@ -138,7 +130,9 @@ app t@(bigA :-> bigC) e = do
   check e bigA
   return bigC
 
-app typ1 term = _
+app t e = tcErr $ unwords ["app:", show t, "=>=>", show e]
+
+-- app typ1 term = _
 
 -- | <:
 sub
@@ -184,12 +178,11 @@ sub bigA (All bigB) = do
 -- <:InstantiateL
 sub (Ex a) bigA
   | a `elem` freeEV bigA
-  = tcErrMsg $ "sub: <:InstantiateL: " ++ show a ++ " free in " ++ show bigA
+  = tcErr $ "sub: <:InstantiateL: " ++ show a ++ " free in " ++ show bigA
   | otherwise = do
     traceW ["<:InstantiateL:", show (a, bigA)]
     hasEV a
     instantiateL a bigA
-
 
 -- <:InstantiateR
 sub bigA (Ex a) = do
@@ -197,11 +190,13 @@ sub bigA (Ex a) = do
   hasEV a
   if a `notElem` freeEV bigA
     then instantiateR bigA a
-    else tcErrMsg $ "sub: <:InstantiateR: " ++ show a ++ " free in " ++ show bigA
+    else tcErr $ "sub: <:InstantiateR: " ++ show a ++ " free in " ++ show bigA
+
+sub a b = tcErr $ unwords ["sub:", show a, "<:", show b]
 
 instantiateL
   :: (TcC a b)
-  => a
+  => ExV
   -> Typ a
   -> Tc a b ()
 
@@ -209,13 +204,13 @@ instantiateL
 instantiateL a (Ex b) = do
   traceW ["InstLReach:", show (a, b)]
   hasEV a
-  hasEV b -- TODO: ensure that order is correct
+  hasEV b -- TODO: ensure that order is correct?
   solve b (Ex a)
 
 -- InstLArr
 instantiateL a (bigA1 :-> bigA2) = do
   hasEV a
-  (Ex a1, Ex a2) <- addExArr a
+  (Ex a1, Ex a2) <- solveArr a
   instantiateR bigA1 a1
   bigA2' <- subst bigA2
   instantiateL a2 bigA2'
@@ -233,15 +228,15 @@ instantiateL a ty
   | isMonoTy ty = do
     hasEV a
     locally $ do
-      dropEV a
+      dropEx a
       wf ty
     solve a ty
-  | otherwise = tcErrMsg $ "instantiateL: don't want: " ++ show a ++ " with " ++ show ty
+  | otherwise = tcErr $ "instantiateL: don't want: " ++ show a ++ " with " ++ show ty
 
 instantiateR
   :: (TcC a b)
   => Typ a
-  -> a
+  -> ExV
   -> Tc a b ()
 
 -- InstRReach
@@ -253,7 +248,7 @@ instantiateR (Ex b) a = do
 -- InstRArr
 instantiateR (bigA1 :-> bigA2) a = do
   hasEV a
-  (Ex a1, Ex a2) <- addExArr a
+  (Ex a1, Ex a2) <- solveArr a
   instantiateL a1 bigA1
   bigA2' <- subst bigA2
   instantiateR bigA2' a2
@@ -272,11 +267,11 @@ instantiateR ty a
     traceW ["InstRSolve:", show (ty, a)]
     hasEV a
     locally $ do
-      dropEV a
+      dropEx a
       wf ty
     solve a ty
     traceW ["InstRSolve2:"]
-  | otherwise = tcErrMsg $ "instantiateR: don't want: " ++ show a ++ " with " ++ show ty
+  | otherwise = tcErr $ "instantiateR: don't want: " ++ show a ++ " with " ++ show ty
 
 wf
   :: (TcC a b)

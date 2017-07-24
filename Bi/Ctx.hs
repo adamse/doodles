@@ -1,12 +1,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE BangPatterns #-}
 -- |
-module Bi.Ctx where
+module Ctx where
 
 import Bound
 
-import Bi.Syn
+import Syn
 
 -- data Elem a b
 --   = ETV a
@@ -28,28 +29,28 @@ import Bi.Syn
 
 data Ctx a b
   = CtxNil
-  | CtxTV a (Ctx a b)
-  | CtxV b (Typ a) (Ctx a b)
-  | CtxEx a (Ctx a b)
-  | CtxSol a (Typ a) (Ctx a b) --
-  | CtxMark a (Ctx a b)
+  | CtxTV !a (Ctx a b)
+  | CtxV !b !(Typ a) (Ctx a b)
+  | CtxEx !ExV (Ctx a b)
+  | CtxSol !ExV (Typ a) (Ctx a b)
+  | CtxMark !ExV (Ctx a b)
   deriving (Show, Eq)
 
 emptyCtx :: Ctx a b
 emptyCtx = CtxNil
 
-data ParaAlg a b r =
-  ParaAlg
+data CtxAlg a b r =
+  CtxAlg
   { paNil :: r -- ^ CtxNil
   , paTV :: (a -> Ctx a b -> r -> r) -- ^ CtxTV
   , paV :: (b -> Typ a -> Ctx a b -> r -> r) -- ^ CtxV
-  , paEx :: (a -> Ctx a b -> r -> r) -- ^ CtxEx
-  , paSol :: (a -> Typ a -> Ctx a b -> r -> r) -- ^ CtxSol
-  , paMark :: (a -> Ctx a b -> r -> r) -- ^ CtxMark
+  , paEx :: (ExV -> Ctx a b -> r -> r) -- ^ CtxEx
+  , paSol :: (ExV -> Typ a -> Ctx a b -> r -> r) -- ^ CtxSol
+  , paMark :: (ExV -> Ctx a b -> r -> r) -- ^ CtxMark
   }
 
-idAlg :: ParaAlg a b (Ctx a b)
-idAlg = ParaAlg
+idAlg :: CtxAlg a b (Ctx a b)
+idAlg = CtxAlg
   CtxNil
   (\a _ r -> CtxTV a r)
   (\b t _ r -> CtxV b t r)
@@ -57,8 +58,8 @@ idAlg = ParaAlg
   (\a ty _ r -> CtxSol a ty r)
   (\a _ r -> CtxMark a r)
 
-mAlg :: Monad m => ParaAlg a b (m (Ctx a b))
-mAlg = ParaAlg
+mAlg :: Monad m => CtxAlg a b (m (Ctx a b))
+mAlg = CtxAlg
   (return CtxNil)
   (\a _ r -> r >>= return . CtxTV a)
   (\b t _ r -> r >>= return . CtxV b t)
@@ -70,8 +71,8 @@ const1 _ r = r
 const2 _ _ r = r
 const3 _ _ _ r = r
 
-constAlg :: r -> ParaAlg a b r
-constAlg r = ParaAlg
+constAlg :: r -> CtxAlg a b r
+constAlg r = CtxAlg
   r
   const2
   const3
@@ -80,10 +81,10 @@ constAlg r = ParaAlg
   const2
 
 paraCtx
-  :: ParaAlg a b r
+  :: CtxAlg a b r
   -> Ctx a b
   -> r
-paraCtx ParaAlg{..} ctx = go ctx
+paraCtx CtxAlg{..} ctx = go ctx
   where
     go ctx = case ctx of
       CtxNil -> paNil
@@ -97,13 +98,13 @@ mapTV
   :: (a -> x)
   -> Ctx a b
   -> Ctx x b
-mapTV f = paraCtx ParaAlg
+mapTV f = paraCtx CtxAlg
   { paNil = CtxNil
   , paTV = (\tv _ r -> CtxTV (f tv) r)
-  , paEx = (\tv _ r -> CtxEx (f tv) r)
+  , paEx = (\ex _ r -> CtxEx ex r)
   , paV = \v ty _ r -> CtxV v (fmap f ty) r
-  , paSol = (\tv ty _ r -> CtxSol (f tv) (fmap f ty) r)
-  , paMark = (\tv _ r -> CtxMark (f tv) r)
+  , paSol = (\ex ty _ r -> CtxSol ex (fmap f ty) r)
+  , paMark = (\ex _ r -> CtxMark ex r)
   }
 
 lookupVarCtx
@@ -126,16 +127,16 @@ hasTVCtx tv = paraCtx (constAlg False)
 
 hasEVCtx
   :: (Eq a)
-  => a
+  => ExV
   -> Ctx a b
   -> Bool
-hasEVCtx tv = paraCtx (constAlg False)
-  { paEx = (\tv' _ r -> tv == tv' || r)
+hasEVCtx ev = paraCtx (constAlg False)
+  { paEx = (\ev' _ r -> ev == ev' || r)
   }
 
 lookupSolCtx
   :: (Eq a)
-  => a
+  => ExV
   -> Ctx a b
   -> Maybe (Typ a)
 lookupSolCtx tv = paraCtx (constAlg Nothing)
@@ -144,7 +145,7 @@ lookupSolCtx tv = paraCtx (constAlg Nothing)
 
 lookupExCtx
   :: (Eq a)
-  => a
+  => ExV
   -> Ctx a b
   -> Maybe ()
 lookupExCtx tv = paraCtx (constAlg Nothing)
@@ -155,7 +156,7 @@ lookupExCtx tv = paraCtx (constAlg Nothing)
 -- the tv is not in the context.
 dropCtxTV
   :: (Eq a)
-  => a -- ^ tv
+  => a
   -> Ctx a b
   -> Maybe (Ctx a b)
 dropCtxTV tv = paraCtx (constAlg Nothing)

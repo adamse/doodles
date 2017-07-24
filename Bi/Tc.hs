@@ -1,18 +1,19 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE BangPatterns #-}
 -- |
-module Bi.Tc where
+module Tc where
 
 import Prelude hiding (lookup)
 import Data.String
+import Data.Coerce (coerce)
 
 import Control.Monad.State.Strict
 import Control.Monad.Except
 
-import Bi.Syn
-import Bi.Ctx as Ctx
+import Syn
+import Ctx as Ctx
 
 newtype A = A String
 newtype B = B String
@@ -22,10 +23,14 @@ newtype Fresh v = Fresh (v, v -> v)
 instance Show v => Show (Fresh v) where
   show (Fresh (v, _)) = show v
 
+exFresh :: Fresh ExV
+exFresh = Fresh (ExV 0, coerce (succ :: Int -> Int))
+
 data S a b = S
-  { sCtx :: Ctx a b
-  , sFreshTV :: Fresh a
-  , sFreshV :: Fresh b
+  { sCtx :: !(Ctx a b)
+  , sFreshTV :: !(Fresh a)
+  , sFreshV :: !(Fresh b)
+  , sFreshEx :: !(Fresh ExV)
   , sTrace :: [(String, Ctx a b)]
   } deriving (Show)
 
@@ -55,6 +60,7 @@ runTc freshA freshB ctx0 (Tc act) =
       { sCtx = ctx0
       , sFreshTV = freshA
       , sFreshV = freshB
+      , sFreshEx = exFresh
       , sTrace = []
       }
 
@@ -69,16 +75,15 @@ runIO tc = do
   case res of
     Right r -> do
       mapM_ printTrace (reverse $ sTrace s)
-      print r
+      printTrace ("Output: " ++ show r, sCtx s)
     Left e -> do
       mapM_ printTrace (reverse $ sTrace s)
       print e
   where
     printTrace (s, ctx) = putStrLn s >> putStr "    " >> print ctx
 
-
-tcErrMsg :: String -> Tc a b r
-tcErrMsg = throwError . Error
+tcErr :: String -> Tc a b r
+tcErr = throwError . Error
 
 traceTc :: String -> Tc a b ()
 traceTc msg = do
@@ -109,6 +114,18 @@ freshTV = do
   modify' (\s -> s { sFreshTV = Fresh (fv v, fv)})
   return v
 
+freshV :: Tc a b b
+freshV = do
+  Fresh (v, fv) <- gets sFreshV
+  modify' (\s -> s { sFreshV = Fresh (fv v, fv)})
+  return v
+
+freshEx :: Tc a b ExV
+freshEx = do
+  Fresh (v, fv) <- gets sFreshEx
+  modify' (\s -> s { sFreshEx = Fresh (fv v, fv)})
+  return v
+
 newTV :: Tc a b (Typ a)
 newTV = do
   tv <- freshTV
@@ -116,26 +133,19 @@ newTV = do
   modify (\s -> s { sCtx = CtxTV tv ctx })
   return (TV tv)
 
-newEx :: Tc a b (Typ a)
+newEx :: Tc a b ExV
 newEx = do
-  tv <- freshTV
+  ev <- freshEx
   ctx <- gets sCtx
-  modify (\s -> s { sCtx = CtxEx tv ctx })
-  return (Ex tv)
+  modify (\s -> s { sCtx = CtxEx ev ctx })
+  return ev
 
-newMarkEx :: Tc a b a
+newMarkEx :: Tc a b ExV
 newMarkEx = do
-  tv <- freshTV
+  tv <- freshEx
   ctx <- gets sCtx
   modify (\s -> s { sCtx = CtxEx tv (CtxMark tv ctx) })
   return tv
-
-
-freshV :: Tc a b b
-freshV = do
-  Fresh (v, fv) <- gets sFreshV
-  modify' (\s -> s { sFreshV = Fresh (fv v, fv)})
-  return v
 
 newV :: Typ a -> Tc a b (Term a b)
 newV ty = do
@@ -162,17 +172,17 @@ hasTV tv = do
   ctx <- gets sCtx
   if hasTVCtx tv ctx
     then return ()
-    else tcErrMsg $ "hasTV: type-variable not in context: " ++ show tv
+    else tcErr $ "hasTV: type-variable not in context: " ++ show tv
 
 hasEV
   :: (Show a, Eq a)
-  => a
+  => ExV
   -> Tc a b ()
 hasEV ev = do
   ctx <- gets sCtx
   if hasEVCtx ev ctx
     then return ()
-    else tcErrMsg $ "hasEV: existential variable not in context: " ++ show ev
+    else tcErr $ "hasEV: existential variable not in context: " ++ show ev
 
 dropTV
   :: (Show a, Eq a)
@@ -184,27 +194,27 @@ dropTV (TV tv) = do
     Just ctx' -> do
       modify' (\s -> s { sCtx = ctx' })
     Nothing ->
-      throwError (Error $ "dropTV: Type-variable not bound: " ++ show tv)
-dropTV ty = throwError (Error $ "dropTV: argument not a type-variable: " ++ show ty)
+      tcErr $ "dropTV: Type-variable not bound: " ++ show tv
+dropTV ty = tcErr $ "dropTV: argument not a type-variable: " ++ show ty
 
 dropMark
   :: (Show a, Eq a)
-  => a
+  => ExV
   -> Tc a b ()
 dropMark tv = do
-  modifyCtx $ paraCtx (constAlg (tcErrMsg $ "dropMark: marker not in context: " ++ show tv))
+  modifyCtx $ paraCtx (constAlg (tcErr $ "dropMark: marker not in context: " ++ show tv))
     { paMark =
         (\tv' ctx' r -> if tv == tv'
           then return ctx'
           else r)
     }
 
-dropEV
+dropEx
   :: (Show a, Eq a)
-  => a
+  => ExV
   -> Tc a b ()
-dropEV tv = do
-  modifyCtx $ paraCtx (constAlg (tcErrMsg $ "dropMark: marker not in context: " ++ show tv))
+dropEx tv = do
+  modifyCtx $ paraCtx (constAlg (tcErr $ "dropMark: marker not in context: " ++ show tv))
     { paEx =
       (\tv' ctx r -> if tv == tv'
         then return ctx
@@ -236,26 +246,28 @@ subst ty = do
 
 solve
   :: (Show a, Eq a)
-  => a
+  => ExV
   -> Typ a
   -> Tc a b ()
 solve a ty = modifyCtx $ paraCtx mAlg
-  { paNil = (tcErrMsg $ "solve: existential variable not in context: " ++ show a)
+  { paNil = (tcErr $ "solve: existential variable not in context: " ++ show a)
   , paEx =
     (\a' ctx r -> if a == a'
       then return $ CtxSol a ty ctx
       else r)
   }
 
-addExArr
+-- | Solve an existential with an ':->' type, with two new
+-- existentials.
+solveArr
   :: (Show a, Eq a)
-  => a
+  => ExV
   -> Tc a b (Typ a, Typ a)
-addExArr a = do
-  a1 <- freshTV
-  a2 <- freshTV
+solveArr a = do
+  a1 <- freshEx
+  a2 <- freshEx
   modifyCtx $ paraCtx mAlg
-    { paNil = (tcErrMsg $ "addExArr: existential variable not bound: " ++ show a)
+    { paNil = (tcErr $ "addExArr: existential variable not bound: " ++ show a)
     , paEx =
       (\a' ctx' r -> if a == a'
         then -- Found: no more work to be done

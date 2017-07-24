@@ -3,21 +3,22 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE BangPatterns #-}
 -- |
-module Bi.Syn where
+module Syn where
 
 import Bound
--- import Control.Applicative
 import Control.Monad (ap)
 import Data.Functor.Classes
--- import Data.Foldable
--- import Data.Traversable
 import Data.Deriving (deriveEq1, deriveOrd1, deriveShow1)
+
+newtype ExV = ExV Int
+  deriving (Show, Eq, Ord)
 
 data Typ a
   = One
-  | TV a
-  | Ex a
+  | TV !a
+  | Ex !ExV
   | All (Scope () Typ a)
   | Typ a :-> Typ a
   deriving (Functor, Foldable, Traversable)
@@ -25,33 +26,13 @@ data Typ a
 fall :: (Eq a) => a -> Typ a -> Typ a
 fall tv = All . abstract1 tv
 
-freeEV :: Typ a -> [a]
+freeEV :: Typ a -> [ExV]
 freeEV typ = case typ of
   One -> []
   TV _ -> []
   Ex a -> [a]
   a :-> b -> freeEV a ++ freeEV b
-  All s -> onlyF (freeEV (fromScope s))
-  where
-    onlyF (F a:r) = a : onlyF r
-    onlyF (_:r) = onlyF r
-    onlyF [] = []
-
--- foldTyp
---   :: r
---   -> (a -> r)
---   -> (a -> r)
---   -> (Scope () Typ a -> r)
---   -> (r -> r -> r)
---   -> Typ a
---   -> r
--- foldTyp one tv ex all arr = go
---   where
---     go One = one
---     go (TV a) = tv a
---     go (Ex a) = ex a
---     go (All s) =
---     go (t1 :-> t2) = go t1 `arr` go t2
+  All s -> (freeEV (fromScope s))
 
 isMonoTy :: Typ a -> Bool
 isMonoTy TV{} = True
@@ -66,6 +47,7 @@ data Term a b
   | Lam (Scope () (Term a) b)
   | Term a b :@ Term a b
   | In (Term a b) (Typ a)
+  -- | Let (Term a b) (Scope () (Term a) b)
   deriving (Functor, Foldable, Traversable)
 
 lam :: (Eq b) => b -> Term a b -> Term a b
@@ -76,7 +58,7 @@ instance Applicative Typ where
   (<*>) = ap
 instance Monad Typ where
   TV a >>= f = f a
-  Ex a >>= f = f a
+  Ex v >>= _ = Ex v
   One >>= _ = One
   All s >>= f = All (s >>>= f)
   (t1 :-> t2) >>= f = (t1 >>= f) :-> (t2 >>= f)
@@ -96,6 +78,7 @@ instance Monad (Term a) where
   Lam s >>= f = Lam (s >>>= f)
   (t1 :@ t2) >>= f = (t1 >>= f) :@ (t2 >>= f)
   In t ty >>= f = In (t >>= f) ty
+  -- Let t s >>= f = Let (t >>= f) (s >>>= f)
 deriveEq1 ''Term
 deriveOrd1 ''Term
 deriveShow1 ''Term
