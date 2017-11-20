@@ -36,7 +36,9 @@ library
                      , bytestring
                      , containers >=0.5 && <0.6
                      , free
+                     , ghc-prim >= 0.5.0.0
                      , http-types
+                     , random >= 1.1
                      , text
                      , wai
                      -- , filepath
@@ -53,5 +55,7 @@ library
                      , newtype
                      , unordered-containers
                      , optparse-generic
-  -- hs-source-dirs:
+                     , split
+                     , megaparsec
+  hs-source-dirs: ., lang
   default-language:    Haskell2010
