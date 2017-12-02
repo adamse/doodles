@@ -19,7 +19,9 @@ import           Text.Megaparsec hiding (runParser, parseTest)
 import qualified Text.Megaparsec.Char.Lexer as L
 import qualified Text.Megaparsec.Char as C
 
+import           Annot
 import           Ast3
+import           Fix
 
 data Problem
   = IdentifierNotInScope ParseName Context
@@ -32,7 +34,7 @@ identNotInScope n = do
 
 instance ShowErrorComponent Problem where
   showErrorComponent (IdentifierNotInScope ident scope) =
-    prettyName ident <>
+    prettyParseName ident <>
     " is not in scope.\n" <>
     prettyContext scope
 
@@ -40,7 +42,7 @@ instance ShowErrorComponent Problem where
 type Context = [(Span, ParseName)]
 
 prettyContext :: Context -> String
-prettyContext = unlines . map (\(sp, n) -> prettyName n <> " (" <> prettySpan sp <> ")")
+prettyContext = unlines . map (\(sp, n) -> prettyParseName n <> " (" <> prettySpan sp <> ")")
 
 -- |
 -- - R = local names
@@ -48,7 +50,7 @@ prettyContext = unlines . map (\(sp, n) -> prettyName n <> " (" <> prettySpan sp
 type Parser = ParsecT Problem Text (S.RWS Context () Context)
 
 fixParser :: (forall a. Parser a -> Parser (f a)) -> Parser (F f)
-fixParser pp = fix (fmap (fmap In) pp) --fix (fmap (fmap In) pp)
+fixParser = ffixF
 
 composeParser
   :: (Functor f, Functor g)
@@ -130,7 +132,7 @@ spanName = withSpan name
 -- instance (AnnotSpan ann) => AnnotSpan (NE.NonEmpty ann) where
 --   getSpan = sconcat . NE.map getSpan
 
-annotParser :: Parser e -> Parser (AnnotF ParseAnn e)
+annotParser :: Parser (f e) -> Parser (AnnotF ParseAnn f e)
 annotParser p = uncurry Annot <$> withSpan p
 
 decl :: Parser e -> Parser (DeclF ParseName e)
@@ -168,24 +170,20 @@ expr e = choice
       checkScope ident
       pure $ IdentF ident
 
-
 parseDecl :: Parser (Decl ParseAnn ParseName)
 parseDecl = annotParser . decl $ parseExpr
 
 parseExpr :: Parser (Expr ParseAnn ParseName)
-parseExpr = foldApply (fixParser (some `composeParser` (annotParser `composeParser` expr)))
+parseExpr = foldApply (fixParser (some `composeParser` (annotParser . expr)))
 
 foldApply
   :: (Semigroup ann)
-  => Parser (F (Compose [] (Compose (AnnotF ann) (ExprF name))))
-  -> Parser (F (Compose (AnnotF ann) (ExprF name)))
+  => Parser (F (Compose [] (AnnotF ann (ExprF name))))
+  -> Parser (Expr ann name)
 foldApply =
-  fmap $
-  cata $
+  fmap . cata $
   In .
   foldl1 (\l r ->
-    Compose $
-    Annot
-      (getAnn (getCompose l) <> getAnn (getCompose r))
-      (ApplyF (In l) (In r))) .
+    Annot (getAnn l <> getAnn r) $
+    ApplyF (In l) (In r)) .
   getCompose
