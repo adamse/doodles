@@ -38,11 +38,12 @@ impl List {
   }
 }
 
+#[cfg(test)]
 mod tests {
   #[test]
   fn basics() {
-    let mut list = List::new();
+    let mut list = crate::first::List::new();
 
-    // assert_eq!(list.pop(), None);
+    assert_eq!(list.pop(), None);
   }
 }
